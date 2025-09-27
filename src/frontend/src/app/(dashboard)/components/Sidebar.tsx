@@ -25,6 +25,7 @@ const Sidebar: React.FC<SidebarProps> = ({ sidebarOpen, setSidebarOpen }) => {
       src: '/icons/personalization2.svg',
       current: false,
     },
+    { name: 'Technical Analysis', route: '/technical-analysis', src: '/icons/enterprise.svg', current: false },
     // { name: 'Integrations', route: "/integrations", src: "/icons/integrations2.svg", current: false },
     // { name: 'Enterprise Solution', route: "/enterprise-solution", src: "/icons/enterprises_solution.svg", current: false },
   ]);

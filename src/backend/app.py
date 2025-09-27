@@ -10,6 +10,7 @@ from src.backend.api.auth import router as auth_router
 from src.backend.api.session import router as session_router
 from src.backend.api.user import router as user_router
 from src.backend.api.chat import router as chat_router
+from src.backend.api.stocks import router as stocks_router
 import os
 
 stock_agent = StockAnalysisAgent()
@@ -34,6 +35,7 @@ app.include_router(auth_router)
 app.include_router(session_router)
 app.include_router(user_router)
 app.include_router(chat_router)
+app.include_router(stocks_router)
 
 @app.get("/", response_class=HTMLResponse)
 async def get():
