@@ -294,6 +294,12 @@ const SidebarContent: React.FC<SidebarContentProps> = ({
       src: '/icons/personalization2.svg',
       onClick: () => router.push('/personalization'),
     },
+    {
+      id: 'technical-analysis',
+      label: 'Technical Analysis',
+      src: '/icons/technical_analysis.svg',
+      onClick: () => router.push('/technical-analysis'),
+    },
     // {
     //   id: "integrations",
     //   label: "Integrations",
