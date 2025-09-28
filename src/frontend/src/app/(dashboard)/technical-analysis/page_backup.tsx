@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Line, Chart, Bar } from 'react-chartjs-2';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Chart } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -14,8 +14,19 @@ import {
   Legend,
   Filler,
 } from 'chart.js';
-import zoomPlugin from 'chartjs-plugin-zoom';
 import annotationPlugin from 'chartjs-plugin-annotation';
+import { 
+  MessageCircle, 
+  Send, 
+  Pencil, 
+  Circle, 
+  Minus, 
+  Square, 
+  TrendingUp,
+  Trash2,
+  MousePointer,
+  X
+} from 'lucide-react';
 // Importing all necessary icons here.
 import { 
     Loader2, 
@@ -158,7 +169,7 @@ const calculateVolatility = (data: StockData[]) => {
 };
 
 // Calculate Daily Returns
-const calculateDailyReturns = (data: StockData[]) => {
+const calculateDailyReturns = (data: StockData[]): (number | null)[] => {
   const returns: (number | null)[] = [null]; // First day has no return
   for (let i = 1; i < data.length; i++) {
     const dailyReturn = ((data[i].close - data[i - 1].close) / data[i - 1].close) * 100;
@@ -411,128 +422,6 @@ const TechnicalAnalysisPage = () => {
     }
   };
 
-  // Chart Click Handler for 2-Point Drawing
-  const handleChartClick = (event: any, elements: any, chart: any) => {
-    if (drawingMode === 'none') return;
-
-    // Get the event's native event for accurate coordinates
-    const nativeEvent = event.native || event;
-    
-    // Get canvas bounds
-    const canvasPosition = chart.canvas.getBoundingClientRect();
-    
-    // Calculate relative position within the chart area
-    const x = nativeEvent.clientX - canvasPosition.left;
-    const y = nativeEvent.clientY - canvasPosition.top;
-    
-    // Get chart area bounds to ensure click is within drawable area
-    const chartArea = chart.chartArea;
-    if (x < chartArea.left || x > chartArea.right || y < chartArea.top || y > chartArea.bottom) {
-      console.log('Click outside chart area, ignoring');
-      return;
-    }
-    
-    // Use Chart.js scales for accurate coordinate conversion
-    const xScale = chart.scales.x;
-    const yScale = chart.scales.y;
-    
-    // For category scale (dates), get the index
-    let dataX, dataY;
-    
-    if (xScale.type === 'category') {
-      // For category scale, convert pixel to data index
-      dataX = Math.round(xScale.getValueForPixel(x));
-      // Clamp to valid range
-      dataX = Math.max(0, Math.min(dataX, chartLabels.length - 1));
-    } else {
-      dataX = xScale.getValueForPixel(x);
-    }
-    
-    dataY = yScale.getValueForPixel(y);
-
-    console.log('Chart clicked (fixed coordinates):', { 
-      pixelX: x, 
-      pixelY: y, 
-      dataX, 
-      dataY,
-      xScaleType: xScale.type,
-      chartAreaLeft: chartArea.left,
-      chartAreaRight: chartArea.right,
-      chartLabelsLength: chartLabels.length,
-      actualLabel: chartLabels[dataX],
-      drawingMode, 
-      isDrawing 
-    });
-
-    if (drawingMode === 'trendline') {
-      if (!isDrawing) {
-        // First point
-        setIsDrawing(true);
-        setCurrentDrawing({ points: [{ x: Math.round(dataX), y: dataY }] });
-        console.log('First point set:', { x: Math.round(dataX), y: dataY });
-      } else {
-        // Second point - complete the drawing
-        if (currentDrawing) {
-          const secondPoint = { x: Math.round(dataX), y: dataY };
-          
-          // Validate coordinates before creating annotation
-          if (isNaN(dataX) || isNaN(dataY) || isNaN(currentDrawing.points[0].x) || isNaN(currentDrawing.points[0].y)) {
-            console.error('Invalid coordinates detected:', {
-              firstPoint: currentDrawing.points[0],
-              secondPoint,
-              dataX,
-              dataY
-            });
-            alert('Invalid coordinates detected. Please try clicking directly on the chart data area.');
-            setIsDrawing(false);
-            setCurrentDrawing(null);
-            setDrawingMode('none');
-            return;
-          }
-          
-          const newAnnotation: ChartAnnotation = {
-            id: `line-${Date.now()}`,
-            type: 'trendline',
-            points: [
-              currentDrawing.points[0],
-              secondPoint
-            ],
-            color: '#10b981',
-            label: `Line ${annotations.length + 1}`,
-            visible: true,
-            aiGenerated: false
-          };
-          
-          console.log('New annotation created:', newAnnotation);
-          
-          setAnnotations(prev => {
-            const updated = [...prev, newAnnotation];
-            console.log('Updated annotations array:', updated);
-            return updated;
-          });
-          
-          setIsDrawing(false);
-          setCurrentDrawing(null);
-          setDrawingMode('none');
-          
-          // Auto-generate AI analysis for the line with proper price validation
-          const startPrice = currentDrawing.points[0].y;
-          const endPrice = dataY;
-          
-          console.log('Price values:', { startPrice, endPrice });
-          
-          // Ensure valid price values
-          const startPriceStr = (isNaN(startPrice) || startPrice === null || startPrice === undefined) ? 'Unknown' : startPrice.toFixed(2);
-          const endPriceStr = (isNaN(endPrice) || endPrice === null || endPrice === undefined) ? 'Unknown' : endPrice.toFixed(2);
-          
-          const analysisMessage = `Analyze the trendline I just drew between $${startPriceStr} and $${endPriceStr}`;
-          console.log('Sending analysis message:', analysisMessage);
-          sendChatMessage(analysisMessage);
-        }
-      }
-    }
-  };
-
   // AI Chat Functions
   const sendChatMessage = async (message: string) => {
     if (!message.trim()) return;
@@ -550,44 +439,23 @@ const TechnicalAnalysisPage = () => {
     setIsAITyping(true);
 
     try {
-      // Prepare enhanced request body with more context
-      const requestBody = {
-        message,
-        stockData: stockData || [],
-        stockSymbol,
-        timeFrame: selectedTimeFrame,
-        annotations,
-        chartType,
-        // Add more context for better AI analysis
-        technicalContext: {
-          currentPrice: stockData?.[stockData.length - 1]?.close || 0,
-          volatility: stockData ? calculateVolatility(stockData) : 0,
-          rsi: stockData ? calculateRSI(stockData.map(d => d.close)) : [],
-          priceChange: stockData && stockData.length > 0 ? 
-            ((stockData[stockData.length - 1].close - stockData[0].open) / stockData[0].open * 100) : 0
-        }
-      };
-      
-      console.log("🚀 Enhanced request body being sent to backend:", requestBody);
-      console.log("📊 Annotations being sent:", annotations);
-      console.log("📈 Technical context:", requestBody.technicalContext);
-      console.log("🎯 Message being analyzed:", message);
-      console.log("🔍 Message includes 'trendline'?", message.toLowerCase().includes('trendline'));
-      console.log("🔍 Message includes 'analyze the'?", message.toLowerCase().includes('analyze the'));
-      console.log("🔍 Annotations count:", annotations?.length || 0);
-      
       // Send to AI API
       const response = await fetch('/api/ai/analyze', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({
+          message,
+          stockData: stockData || [],
+          stockSymbol,
+          timeFrame: selectedTimeFrame,
+          annotations,
+          chartType
+        }),
       });
 
-      console.log("Response status:", response.status);
       const result = await response.json();
-      console.log("Backend response:", result);
       
       // Add AI response
       const aiMessage: ChatMessage = {
@@ -601,12 +469,7 @@ const TechnicalAnalysisPage = () => {
 
       // Update chart with AI annotations if provided
       if (result.chartUpdates && result.chartUpdates.length > 0) {
-        console.log("Received chart updates from backend:", result.chartUpdates);
-        setAnnotations(prev => {
-          const updated = [...prev, ...result.chartUpdates];
-          console.log("Updated annotations with AI responses:", updated);
-          return updated;
-        });
+        setAnnotations(prev => [...prev, ...result.chartUpdates]);
       }
 
     } catch (error) {
@@ -700,129 +563,153 @@ const TechnicalAnalysisPage = () => {
       return "Please load some stock data first, then I can help analyze it for you! 📊";
     }
 
-    // Handle 2-point trendline analysis with enhanced logging
-    if (messageLower.includes('analyze the trendline') && annotations.length > 0) {
-      console.log("Processing trendline analysis for annotations:", annotations);
-      
-      const latestAnnotation = annotations[annotations.length - 1];
-      console.log("Latest annotation for analysis:", latestAnnotation);
-      
-      if (latestAnnotation.points && latestAnnotation.points.length >= 2) {
-        const [start, end] = latestAnnotation.points;
-        const startPrice = start.y;
-        const endPrice = end.y;
-        
-        console.log("Raw annotation points:", { start, end, startPrice, endPrice });
-        
-        // Validate price values
-        if (isNaN(startPrice) || isNaN(endPrice) || startPrice === null || endPrice === null) {
-          return `⚠️ **Trendline Analysis Error:**
-          
-**Issue:** Unable to analyze the drawn line due to invalid coordinates.
-**Possible causes:** 
-• Chart scaling issues
-• Coordinate conversion problems
-• Data not loaded properly
-
-**Debug Info:** 
-• Start Price: ${startPrice}
-• End Price: ${endPrice}
-• Chart has ${stockData?.length || 0} data points
-
-**Try:** Refresh the page and ensure stock data is loaded before drawing.`;
-        }
-        
-        const priceChange = endPrice - startPrice;
-        const priceChangePercent = (priceChange / startPrice) * 100;
-        const currentPrice = stockData[stockData.length - 1]?.close || 0;
-        
-        console.log("Trendline analysis data:", {
-          startPrice,
-          endPrice,
-          priceChange,
-          priceChangePercent,
-          currentPrice
-        });
-        
-        const isUpward = priceChange > 0;
-        const trendStrength = Math.abs(priceChangePercent) > 5 ? 'Strong' : Math.abs(priceChangePercent) > 2 ? 'Moderate' : 'Weak';
-        
-        // Calculate additional metrics
-        const priceRange = Math.abs(priceChange);
-        const daysBetween = Math.abs(end.x - start.x);
-        const dailyChangeRate = daysBetween > 0 ? (priceChangePercent / daysBetween) : 0;
-        const volatility = stockData ? calculateVolatility(stockData) : 0;
-        const rsi = calculateRSI(stockData.map(d => d.close));
-        const latestRSI = rsi[rsi.length - 1] || 50;
-        
-        // Determine trend strength based on multiple factors
-        let trendStrengthScore = 0;
-        if (Math.abs(priceChangePercent) > 5) trendStrengthScore += 2;
-        else if (Math.abs(priceChangePercent) > 2) trendStrengthScore += 1;
-        if (Math.abs(dailyChangeRate) > 1) trendStrengthScore += 1;
-        if (priceRange > currentPrice * 0.02) trendStrengthScore += 1;
-        
-        const trendStrengthText = trendStrengthScore >= 3 ? 'Very Strong 🔥' : 
-                                 trendStrengthScore >= 2 ? 'Strong 💪' : 
-                                 trendStrengthScore >= 1 ? 'Moderate ⚡' : 'Weak 📉';
-        
-        return `📈 **Smart Trendline Analysis: ${stockSymbol}**
-
-**🎯 Your Line Overview:**
-• **Start:** $${startPrice.toFixed(2)} → **End:** $${endPrice.toFixed(2)}
-• **Move:** ${priceChange >= 0 ? '+' : ''}$${priceChange.toFixed(2)} (${priceChangePercent >= 0 ? '+' : ''}${priceChangePercent.toFixed(2)}%)
-• **Timespan:** ${daysBetween} data points
-• **Daily Rate:** ${dailyChangeRate.toFixed(2)}% per period
-
-**📊 Technical Assessment:**
-• **Direction:** ${isUpward ? '🟢 BULLISH Trajectory' : '🔴 BEARISH Trajectory'}
-• **Strength:** ${trendStrengthText}
-• **Current Price:** $${currentPrice.toFixed(2)} ${currentPrice > Math.max(startPrice, endPrice) ? '📈 Above your trendline' : currentPrice < Math.min(startPrice, endPrice) ? '📉 Below your trendline' : '🎯 Near your trendline'}
-
-**🧠 Market Context:**
-• **RSI:** ${latestRSI.toFixed(1)} ${latestRSI > 70 ? '(Overbought Zone ⚠️)' : latestRSI < 30 ? '(Oversold Zone 💚)' : '(Neutral Zone 🟡)'}
-• **Volatility:** ${volatility.toFixed(1)}% ${volatility > 25 ? '(High Risk)' : volatility > 15 ? '(Moderate)' : '(Low Risk)'}
-
-**� Trading Insights:**
-${isUpward ? 
-  `🚀 **BULLISH SCENARIO:**
-• Your line suggests upward momentum
-• Price moving from $${startPrice.toFixed(2)} to $${endPrice.toFixed(2)}
-• ${priceChangePercent > 3 ? 'Strong bullish signal - Consider buying dips' : priceChangePercent > 1 ? 'Moderate uptrend - Watch for continuation' : 'Weak uptrend - Need confirmation'}
-• **Support Level:** Around $${Math.min(startPrice, endPrice).toFixed(2)}
-• **Target:** Next resistance near $${(Math.max(startPrice, endPrice) + priceRange).toFixed(2)}` :
-  `⚠️ **BEARISH SCENARIO:**
-• Your line shows downward pressure  
-• Price declining from $${startPrice.toFixed(2)} to $${endPrice.toFixed(2)}
-• ${Math.abs(priceChangePercent) > 3 ? 'Strong bearish signal - Consider protective stops' : Math.abs(priceChangePercent) > 1 ? 'Moderate downtrend - Watch for breakdown' : 'Weak downtrend - Could reverse'}
-• **Resistance Level:** Around $${Math.max(startPrice, endPrice).toFixed(2)}
-• **Support:** Next level near $${(Math.min(startPrice, endPrice) - priceRange).toFixed(2)}`
-}
-
-**⚡ Action Plan:**
-${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
-  priceChangePercent < -2 ? '🛑 Strong downtrend - Consider profit taking or stops' :
-  Math.abs(priceChangePercent) < 1 ? '📊 Consolidation - Wait for breakout direction' :
-  '👀 Developing trend - Monitor for continuation'}
-
-**🎪 Pro Tip:** ${isUpward ? 'If price breaks above your line with volume, it could accelerate higher!' : 'If price breaks below your line with volume, expect further decline!'}`;
-      }
-    }
-
-    // Rest of the fallback responses...
     const currentPrice = stockData[stockData.length - 1]?.close;
     const previousPrice = stockData[0]?.close;
     const change = ((currentPrice - previousPrice) / previousPrice * 100);
+    const priceVolatility = stockData ? calculateVolatility(stockData) : 0;
+    const avgVolume = stockData.reduce((sum, d) => sum + d.volume, 0) / stockData.length;
+    const currentVolume = stockData[stockData.length - 1]?.volume;
+
+    if (messageLower.includes('trend') || messageLower.includes('direction') || messageLower.includes('analysis')) {
+      const rsi = calculateRSI(stockData.map(d => d.close));
+      const latestRSI = rsi[rsi.length - 1];
+      const dailyReturns = calculateDailyReturns(stockData);
+      const latestReturn = dailyReturns[dailyReturns.length - 1];
+      const sharpeRatio = calculateSharpeRatio(stockData);
+      const sma20 = calculateSMA(stockData, 20);
+      const sma50 = calculateSMA(stockData, 50);
+      const ema12 = calculateEMA(stockData, 12);
+      const latestSMA20 = sma20[sma20.length - 1];
+      const latestSMA50 = sma50[sma50.length - 1];
+      const latestEMA12 = ema12[ema12.length - 1];
+      
+      const priceChange1d = calculatePriceChange(stockData, 1);
+      const priceChange7d = calculatePriceChange(stockData, 7);
+      const priceChange30d = calculatePriceChange(stockData, 30);
+      
+      return `📈 **${stockSymbol} Complete Technical Analysis:**
+
+**📊 Price Changes:**
+• 1 Day: ${priceChange1d.changePercent >= 0 ? '+' : ''}${priceChange1d.changePercent.toFixed(2)}% ($${priceChange1d.change.toFixed(2)})
+• 7 Days: ${priceChange7d.changePercent >= 0 ? '+' : ''}${priceChange7d.changePercent.toFixed(2)}% ($${priceChange7d.change.toFixed(2)})
+• 30 Days: ${priceChange30d.changePercent >= 0 ? '+' : ''}${priceChange30d.changePercent.toFixed(2)}% ($${priceChange30d.change.toFixed(2)})
+• Current Price: $${currentPrice?.toFixed(2)}
+
+**📈 Moving Averages:**
+• SMA(20): $${latestSMA20?.toFixed(2)} ${currentPrice > (latestSMA20 || 0) ? '✅ Above' : '❌ Below'}
+• SMA(50): $${latestSMA50?.toFixed(2)} ${currentPrice > (latestSMA50 || 0) ? '✅ Above' : '❌ Below'}
+• EMA(12): $${latestEMA12?.toFixed(2)} ${currentPrice > (latestEMA12 || 0) ? '✅ Above' : '❌ Below'}
+
+**⚡ Momentum Indicators:**
+• RSI (14): ${latestRSI?.toFixed(1)} ${latestRSI > 70 ? '(Overbought ⚠️)' : latestRSI < 30 ? '(Oversold 💚)' : '(Neutral 🟡)'}
+• Latest Daily Return: ${latestReturn ? (latestReturn >= 0 ? '+' : '') + (latestReturn as number).toFixed(2) + '%' : 'N/A'}
+
+**🎯 Risk Metrics:**
+• Volatility: ${priceVolatility.toFixed(2)}% (${priceVolatility > 30 ? 'High 🔴' : priceVolatility > 15 ? 'Moderate 🟡' : 'Low 🟢'})
+• Sharpe Ratio: ${sharpeRatio.toFixed(2)} ${sharpeRatio > 1 ? '(Excellent 🟢)' : sharpeRatio > 0.5 ? '(Good 🟡)' : '(Poor 🔴)'}
+
+**� Current Trend:** ${change > 2 ? 'Strong Bullish 🟢' : change > 0 ? 'Bullish 🟢' : change < -2 ? 'Strong Bearish 🔴' : change < 0 ? 'Bearish 🔴' : 'Sideways 🟡'}
+
+💡 *Use chart zoom/pan features and draw annotations for deeper analysis!*`;
+    }
     
+    if (messageLower.includes('support') || messageLower.includes('resistance')) {
+      const highs = stockData.map(d => d.high);
+      const lows = stockData.map(d => d.low);
+      const resistance = Math.max(...highs) * 0.98;
+      const support = Math.min(...lows) * 1.02;
+      
+      return `🎯 **Support & Resistance Analysis for ${stockSymbol}:**
+
+**Key Levels:**
+• **Resistance:** $${resistance.toFixed(2)} ${currentPrice > resistance ? '🚨 Testing' : '✅ Room to move'}
+• **Support:** $${support.toFixed(2)} ${currentPrice < support ? '⚠️ At risk' : '✅ Holding strong'}
+• **Current:** $${currentPrice?.toFixed(2)}
+
+**Distance Analysis:**
+• To Resistance: ${((resistance - currentPrice) / currentPrice * 100).toFixed(1)}%
+• To Support: ${((currentPrice - support) / support * 100).toFixed(1)}%
+
+🎨 **Try This:** Use drawing tools to mark your own support/resistance levels and ask me to analyze them!`;
+    }
+    
+    if (messageLower.includes('rsi') || messageLower.includes('overbought') || messageLower.includes('oversold')) {
+      const rsi = calculateRSI(stockData.map(d => d.close));
+      const latestRSI = rsi[rsi.length - 1];
+      
+      return `📊 **RSI Analysis for ${stockSymbol}:**
+
+**Current RSI:** ${latestRSI?.toFixed(1)}
+
+**Signal Analysis:**
+${latestRSI > 70 ? '🔴 **OVERBOUGHT** - Potential selling pressure ahead' : 
+  latestRSI < 30 ? '🟢 **OVERSOLD** - Potential buying opportunity' : 
+  '🟡 **NEUTRAL** - No extreme conditions detected'}
+
+**RSI Interpretation:**
+• Above 70: Overbought territory
+• Below 30: Oversold territory  
+• 50: Neutral momentum
+• Current: ${latestRSI > 50 ? 'Bullish bias' : 'Bearish bias'}
+
+💡 *RSI divergences with price can signal trend reversals!*`;
+    }
+    
+    if (messageLower.includes('volume') || messageLower.includes('activity')) {
+      const volumeRatio = (currentVolume / avgVolume) * 100;
+      
+      return `📊 **Volume Analysis:**
+
+**Current Activity:** ${volumeRatio > 150 ? 'HIGH 🔥' : volumeRatio < 50 ? 'LOW 😴' : 'NORMAL 📊'}
+
+**Volume Metrics:**
+• Current: ${(currentVolume / 1000000).toFixed(1)}M shares
+• Average: ${(avgVolume / 1000000).toFixed(1)}M shares  
+• Vs Average: ${volumeRatio.toFixed(0)}%
+
+**What This Means:**
+${volumeRatio > 150 ? '• High volume confirms price moves\n• Strong conviction from traders\n• Breakouts more likely to sustain' :
+  volumeRatio < 50 ? '• Low conviction behind moves\n• Price action less reliable\n• Wait for volume confirmation' :
+  '• Steady, healthy trading activity\n• Normal market participation\n• Technical levels more reliable'}`;
+    }
+
+    if (messageLower.includes('volatility') || messageLower.includes('risk')) {
+      return `📈 **Volatility & Risk Analysis:**
+
+**Price Volatility:** ${priceVolatility.toFixed(2)}%
+**Risk Level:** ${priceVolatility > 30 ? 'HIGH ⚠️' : priceVolatility > 15 ? 'MODERATE 🟡' : 'LOW ✅'}
+
+**Volatility Breakdown:**
+• Current: ${priceVolatility.toFixed(2)}%
+• Classification: ${priceVolatility > 30 ? 'Highly volatile - Large price swings expected' :
+  priceVolatility > 15 ? 'Moderately volatile - Normal market fluctuation' :
+  'Low volatility - Stable price movement'}
+
+**Trading Implications:**
+${priceVolatility > 30 ? '• Use wider stop losses\n• Reduce position sizes\n• Expect larger gains/losses' :
+  '• Normal risk management applies\n• Standard position sizing OK\n• More predictable price action'}`;
+    }
+
+    // Default comprehensive analysis
     return `🤖 **AI Trading Assistant for ${stockSymbol}**
 
 **Quick Analysis:**
 • Price: $${currentPrice?.toFixed(2)} (${change >= 0 ? '+' : ''}${change.toFixed(2)}%)
-• Active Annotations: ${annotations.length}
+• Trend: ${change > 2 ? 'Bullish 📈' : change < -2 ? 'Bearish 📉' : 'Sideways ➡️'}
+• Volume: ${((currentVolume / avgVolume) * 100).toFixed(0)}% of average
+• Volatility: ${priceVolatility.toFixed(1)}%
+
+**Ask me about:**
+🎯 "What's the current trend?"
+📊 "Find support and resistance levels"
+📈 "Analyze RSI conditions" 
+📊 "Check volume activity"
+⚡ "Calculate volatility"
+💰 "Show moving averages"
 
 **Pro Tip:** Draw on the chart and ask me to analyze your annotations!
 
-*For advanced AI analysis, configure your backend API endpoint*`;
+*For advanced AI analysis, configure your Gemini API key in .env.local*`;
   };
 
   // Calculate all technical indicators
@@ -1002,97 +889,9 @@ ${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
   const priceChartOptions = {
     responsive: true,
     maintainAspectRatio: false,
-    animation: { duration: 300, easing: 'easeInOutQuad' as const },
-    onClick: handleChartClick,
-    onHover: (event: any, elements: any, chart: any) => {
-      // Change cursor when in drawing mode
-      chart.canvas.style.cursor = drawingMode !== 'none' ? 'crosshair' : 'default';
-    },
-    interaction: {
-      intersect: false,
-      mode: 'index' as const,
-    },
+    animation: { duration: 1000, easing: 'easeInOutQuad' as const },
     plugins: {
       legend: { position: 'top' as const, labels: { color: textColor } },
-      annotation: {
-        annotations: annotations.reduce((acc: any, annotation) => {
-          if (!annotation.visible) return acc;
-
-          console.log(`Rendering annotation: ${annotation.id} (${annotation.type})`);
-
-          if (annotation.type === 'trendline' && annotation.points.length >= 2) {
-            const [start, end] = annotation.points;
-            
-            console.log(`Processing trendline annotation:`, { start, end, chartLabelsLength: chartLabels.length });
-            
-            // For category scale, use the data index directly
-            // For other scales, use the coordinate value
-            const startX = Math.max(0, Math.min(Math.round(start.x), chartLabels.length - 1));
-            const endX = Math.max(0, Math.min(Math.round(end.x), chartLabels.length - 1));
-            
-            acc[annotation.id] = {
-              type: 'line',
-              xMin: startX,
-              yMin: start.y,
-              xMax: endX,
-              yMax: end.y,
-              borderColor: annotation.color,
-              borderWidth: 4,
-              borderDash: [],
-              label: {
-                display: true,
-                content: annotation.label,
-                position: 'start',
-                backgroundColor: annotation.color,
-                color: '#fff',
-                padding: 6,
-                borderRadius: 4,
-                font: {
-                  size: 12,
-                  weight: 'bold'
-                }
-              }
-            };
-            
-            console.log(`Trendline annotation final config:`, {
-              id: annotation.id,
-              xMin: startX,
-              xMax: endX,
-              yMin: start.y,
-              yMax: end.y,
-              startLabel: chartLabels[startX],
-              endLabel: chartLabels[endX]
-            });
-          }
-
-          if (annotation.type === 'point' && annotation.points.length >= 1) {
-            const point = annotation.points[0];
-            
-            acc[annotation.id] = {
-              type: 'point',
-              xValue: Math.min(Math.max(point.x, 0), chartLabels.length - 1),
-              yValue: point.y,
-              backgroundColor: annotation.color,
-              borderColor: annotation.color,
-              borderWidth: 2,
-              radius: 8,
-              label: {
-                display: true,
-                content: annotation.label,
-                position: 'top',
-                backgroundColor: annotation.color,
-                color: '#fff',
-                padding: 4,
-                borderRadius: 4
-              }
-            };
-            
-            console.log(`Point annotation config:`, acc[annotation.id]);
-          }
-
-          return acc;
-        }, {})
-      },
       tooltip: {
         mode: 'index' as const,
         intersect: false,
@@ -1698,9 +1497,9 @@ ${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
                           <div className={`text-xs ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
                             Latest Return: <span>{(() => {
                               const returns = calculateDailyReturns(stockData);
-                              const latestReturn = returns[returns.length - 1];
-                              return (latestReturn !== undefined && latestReturn !== null) ? latestReturn.toFixed(2) : 'N/A';
-                            })()}%</span>
+                              const lastReturn = returns[returns.length - 1];
+                              return lastReturn !== null ? lastReturn.toFixed(2) + '%' : 'N/A';
+                            })()}</span>
                           </div>
                         </div>
                       </div>
@@ -1720,101 +1519,6 @@ ${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
             <h3 className={`text-lg font-semibold ${isDark ? 'text-gray-200' : 'text-gray-800'} mb-4 flex items-center gap-2`}>
               <Pencil className="w-5 h-5 text-blue-400" /> Chart Drawing Tools
             </h3>
-            
-            <div className="flex flex-wrap gap-3 mb-4">
-              {[
-                { mode: 'none', label: '🖱️ Select Mode', icon: MousePointer },
-                { mode: 'trendline', label: '📈 Draw 2-Point Line & Get AI Analysis', icon: TrendingUp },
-              ].map(({ mode, label, icon: Icon }) => (
-                <button
-                  key={mode}
-                  onClick={() => {
-                    setDrawingMode(mode as any);
-                    setIsDrawing(false);
-                    setCurrentDrawing(null);
-                  }}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    drawingMode === mode
-                      ? 'bg-blue-600 text-white shadow-lg'
-                      : isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  <Icon className="w-4 h-4" />
-                  {label}
-                </button>
-              ))}
-              
-              <button
-                onClick={() => setAnnotations([])}
-                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ml-auto ${
-                  isDark ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-red-500 text-white hover:bg-red-600'
-                }`}
-              >
-                <Trash2 className="w-4 h-4" />
-                Clear All
-              </button>
-            </div>
-
-            {/* Drawing Instructions */}
-            {drawingMode === 'trendline' && (
-              <div className={`mb-4 p-4 rounded-lg ${isDark ? 'bg-blue-900/20 border border-blue-700/50' : 'bg-blue-50 border border-blue-200'}`}>
-                <div className="flex items-center gap-2 mb-2">
-                  <div className={`w-3 h-3 rounded-full ${isDrawing ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`}></div>
-                  <p className={`text-sm font-medium ${isDark ? 'text-blue-300' : 'text-blue-700'}`}>
-                    {!isDrawing ? 
-                      '🎯 Click on the chart to place your first point' : 
-                      '🎯 Click again to place your second point and get AI analysis!'
-                    }
-                  </p>
-                </div>
-                <p className={`text-xs ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
-                  {isDrawing ? 
-                    '✅ First point placed! Now click anywhere else on the chart for the second point.' :
-                    'The AI will automatically analyze the trend between your two points!'
-                  }
-                </p>
-                {currentDrawing && (
-                  <p className={`text-xs ${isDark ? 'text-green-400' : 'text-green-600'} mt-1`}>
-                    📍 First point: {chartLabels[Math.round(currentDrawing.points[0].x)]} at ${currentDrawing.points[0].y.toFixed(2)}
-                  </p>
-                )}
-              </div>
-            )}
-
-            {/* Annotations List */}
-            {annotations.length > 0 && (
-              <div className="mt-4">
-                <h4 className={`text-sm font-medium ${isDark ? 'text-gray-400' : 'text-gray-600'} mb-2`}>
-                  Active Annotations ({annotations.length})
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {annotations.map((annotation) => (
-                    <div
-                      key={annotation.id}
-                      className={`flex items-center justify-between p-2 rounded-lg ${
-                        isDark ? 'bg-gray-800' : 'bg-gray-50'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: annotation.color }}
-                        />
-                        <span className={`text-sm ${isDark ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {annotation.label} {annotation.aiGenerated && '(AI)'}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => setAnnotations(prev => prev.filter(a => a.id !== annotation.id))}
-                        className={`text-gray-500 hover:text-red-400 transition-colors`}
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
             
             <div className="flex flex-wrap gap-2 mb-4">
               {[
@@ -2020,8 +1724,7 @@ ${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
                   "Find support levels", 
                   "Analyze RSI",
                   "Check volume",
-                  "Calculate volatility",
-                  ...(annotations.length > 0 ? ["Analyze my trendline"] : [])
+                  "Calculate volatility"
                 ].map((suggestion) => (
                   <button
                     key={suggestion}

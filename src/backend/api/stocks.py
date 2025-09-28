@@ -21,11 +21,24 @@ async def get_historical_data(
         interval: Data interval (1m, 2m, 5m, 15m, 30m, 60m, 90m, 1h, 1d, 5d, 1wk, 1mo, 3mo)
     """
     try:
+        # Clean up the symbol (remove spaces, convert to uppercase)
+        symbol = symbol.strip().upper()
+        
         ticker = yf.Ticker(symbol)
+        
+        # First check if the ticker exists by trying to get basic info
+        try:
+            info = ticker.info
+            if not info or info.get('regularMarketPrice') is None:
+                raise HTTPException(status_code=404, detail=f"Invalid stock symbol: {symbol}. Please check the company name or stock ticker.")
+        except:
+            raise HTTPException(status_code=404, detail=f"Invalid stock symbol: {symbol}. Please check the company name or stock ticker.")
+        
+        # Get historical data
         hist = ticker.history(period=period, interval=interval)
         
         if hist.empty:
-            raise HTTPException(status_code=404, detail=f"No data found for symbol {symbol}")
+            raise HTTPException(status_code=404, detail=f"No historical data available for symbol: {symbol}")
         
         # Convert to list of dictionaries for JSON response
         data = []
@@ -43,31 +56,39 @@ async def get_historical_data(
             "symbol": symbol,
             "period": period,
             "interval": interval,
-            "data": data
+            "data": data,
+            "companyName": info.get("longName", symbol)
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching data for {symbol}: {str(e)}")
 
 @router.get("/quote/{symbol}")
 async def get_quote(symbol: str):
     """Get current quote for a stock symbol"""
     try:
+        # Clean up the symbol (remove spaces, convert to uppercase)
+        symbol = symbol.strip().upper()
+        
         ticker = yf.Ticker(symbol)
         info = ticker.info
         
-        if not info:
-            raise HTTPException(status_code=404, detail=f"No data found for symbol {symbol}")
+        if not info or info.get("regularMarketPrice") is None:
+            raise HTTPException(status_code=404, detail=f"Invalid stock symbol: {symbol}. Please check the company name or stock ticker.")
         
         return {
             "symbol": symbol,
-            "price": info.get("currentPrice", 0),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice", 0),
             "change": info.get("regularMarketChange", 0),
             "changePercent": info.get("regularMarketChangePercent", 0),
             "volume": info.get("volume", 0),
             "marketCap": info.get("marketCap", 0),
-            "companyName": info.get("longName", ""),
+            "companyName": info.get("longName", symbol),
         }
     
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching quote: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error fetching quote for {symbol}: {str(e)}")

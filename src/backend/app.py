@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse
 from src.backend.utils.api_utils import redis_manager
 from src.ai.stock_prediction.stock_prediction import StockAnalysisAgent
 from contextlib import asynccontextmanager
@@ -37,37 +37,9 @@ app.include_router(user_router)
 app.include_router(chat_router)
 app.include_router(stocks_router)
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 async def get():
-    return FileResponse(path="out/index.html")
-
-@app.get("/{url:path}")
-async def chat_redirect(url: str):
-    try:
-        if url.startswith("public/") and os.path.exists(url):
-            return FileResponse(url)
-    except Exception as e:
-        print(f"Error checking or serving {url}: {e}")
-
-    try:
-        if os.path.exists(f"out/{url}"):
-            return FileResponse(f"out/{url}")
-    except Exception as e:
-        print(f"Error checking or serving out/{url}: {e}")
-
-    try:
-        if os.path.exists(f"out/{url}.html"):
-            return FileResponse(f"out/{url}.html")
-    except Exception as e:
-        print(f"Error checking or serving out/{url}.html: {e}")
-
-    try:
-        if os.path.exists(f"out/{url}.txt"):
-            return FileResponse(f"out/{url}.txt")
-    except Exception as e:
-        print(f"Error checking or serving out/{url}.txt: {e}")
-
-    return Response(status_code=status.HTTP_404_NOT_FOUND)
+    return {"message": "Finance Insight Agent API is running!", "status": "healthy", "version": "1.0.0"}
 
 
 if __name__ == "__main__":
