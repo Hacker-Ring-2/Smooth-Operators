@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   trailingSlash: false,
-  output: 'export',
+  // Removed output: 'export' to enable API routes
 };
 
 export default nextConfig;

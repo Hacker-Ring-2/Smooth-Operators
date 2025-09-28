@@ -21,11 +21,148 @@ interface ChartAnnotation {
 
 interface AnalysisRequest {
   message: string;
+  originalMessage?: string;
   stockData: StockData[];
   stockSymbol: string;
   timeFrame: string;
   annotations: ChartAnnotation[];
   chartType: string;
+  technicalContext?: {
+    currentPrice: number;
+    volatility: number;
+    rsi: number;
+    ma20: number;
+    priceChange: number;
+    technicalAnalysis?: any;
+    marketContext?: {
+      trend: string;
+      strength: string;
+      momentum: string;
+      volume: string;
+    };
+  };
+}
+
+// Smart Analysis Helper Functions
+function getTrendEmoji(trend: string): string {
+  switch (trend) {
+    case 'strong_bullish': return '🚀';
+    case 'bullish': return '📈';
+    case 'strong_bearish': return '💥';
+    case 'bearish': return '📉';
+    case 'sideways': return '➡️';
+    default: return '❓';
+  }
+}
+
+function getMomentumEmoji(momentum: string): string {
+  switch (momentum) {
+    case 'overbought': return '🔴';
+    case 'oversold': return '🟢';
+    case 'neutral': return '🟡';
+    default: return '⚪';
+  }
+}
+
+function getStrengthEmoji(strength: string): string {
+  return strength === 'strong' ? '💪' : '📊';
+}
+
+function getVolumeEmoji(volume: string): string {
+  switch (volume) {
+    case 'high': return '🔥';
+    case 'low': return '😴';
+    case 'normal': return '📊';
+    default: return '❓';
+  }
+}
+
+function getRSIStatus(rsi: number): string {
+  if (rsi > 70) return '(Overbought - Consider Selling 🔴)';
+  if (rsi < 30) return '(Oversold - Consider Buying 🟢)';
+  return '(Neutral Zone 🟡)';
+}
+
+function generateSmartInsights(marketContext: any, technicalContext: any, message: string): string {
+  const insights = [];
+  
+  // Trend-based insights
+  if (marketContext.trend === 'strong_bullish') {
+    insights.push('🚀 Strong uptrend detected - Momentum is building for higher prices');
+  } else if (marketContext.trend === 'strong_bearish') {
+    insights.push('💥 Strong downtrend active - Consider protective measures');
+  } else if (marketContext.trend === 'sideways') {
+    insights.push('➡️ Consolidation phase - Watch for breakout signals');
+  }
+  
+  // RSI-based insights
+  if (technicalContext.rsi > 70 && technicalContext.currentPrice > technicalContext.ma20) {
+    insights.push('⚠️ Overbought conditions with bullish trend - Potential pullback ahead');
+  } else if (technicalContext.rsi < 30 && technicalContext.currentPrice < technicalContext.ma20) {
+    insights.push('💚 Oversold conditions in bearish trend - Potential bounce opportunity');
+  }
+  
+  // Volume insights
+  if (marketContext.volume === 'high' && marketContext.trend.includes('bullish')) {
+    insights.push('🔥 High volume supporting bullish move - Strong conviction');
+  } else if (marketContext.volume === 'low') {
+    insights.push('😴 Low volume - Price moves may lack conviction');
+  }
+  
+  // MA-based insights
+  if (technicalContext.currentPrice > technicalContext.ma20) {
+    insights.push('📈 Price above 20-MA suggests bullish momentum');
+  } else {
+    insights.push('📉 Price below 20-MA indicates bearish pressure');
+  }
+  
+  return insights.join('\n• ') || '• Market is in a neutral state - Monitor for clear signals';
+}
+
+function generateActionRecommendations(marketContext: any, technicalContext: any): string {
+  const recommendations = [];
+  
+  // Primary trend recommendation
+  if (marketContext.trend === 'strong_bullish' && technicalContext.rsi < 70) {
+    recommendations.push('🟢 **BUY SIGNAL**: Strong uptrend with room to run');
+  } else if (marketContext.trend === 'strong_bearish' && technicalContext.rsi > 30) {
+    recommendations.push('🔴 **SELL SIGNAL**: Strong downtrend with further downside');
+  } else if (marketContext.trend === 'sideways') {
+    recommendations.push('🟡 **HOLD/WAIT**: Range-bound - Wait for clear breakout');
+  }
+  
+  // Risk management
+  if (technicalContext.volatility > 25) {
+    recommendations.push('⚠️ **HIGH VOLATILITY**: Use smaller position sizes');
+  }
+  
+  // Entry/Exit levels
+  if (technicalContext.rsi < 30) {
+    recommendations.push('💚 **OVERSOLD**: Consider buying near support levels');
+  } else if (technicalContext.rsi > 70) {
+    recommendations.push('🔴 **OVERBOUGHT**: Consider taking profits or tightening stops');
+  }
+  
+  return recommendations.join('\n• ') || '• Monitor key levels and wait for clearer signals';
+}
+
+function generateSmartChartUpdates(technicalContext: any): any[] {
+  const updates = [];
+  
+  // Add MA level indicator
+  if (technicalContext.ma20) {
+    updates.push({
+      id: `smart-ma20-${Date.now()}`,
+      type: 'support',
+      points: [{ x: 0, y: technicalContext.ma20 }, { x: 100, y: technicalContext.ma20 }],
+      color: '#fbbf24',
+      label: `Smart MA20 $${technicalContext.ma20.toFixed(2)}`,
+      visible: true,
+      aiGenerated: true
+    });
+  }
+  
+  return updates;
 }
 
 // Gemini AI Integration
@@ -204,22 +341,80 @@ function identifyChartPatterns(data: StockData[]): string[] {
 }
 
 export async function POST(request: NextRequest) {
+  console.log("🔥 AI Analysis API POST request received - Proxying to backend on port 8001");
+  
   let body: AnalysisRequest;
   
   try {
-    body = await request.json();
+    const requestText = await request.text();
+    console.log("📝 Raw request body length:", requestText.length);
+    
+    if (!requestText.trim()) {
+      throw new Error("Empty request body");
+    }
+    
+    body = JSON.parse(requestText);
+    console.log("✅ Successfully parsed request JSON");
   } catch (parseError) {
-    console.error('JSON Parse Error:', parseError);
+    console.error('❌ JSON Parse Error:', parseError);
     return NextResponse.json({
       message: "❌ **Request Error**\n\nInvalid request format. Please check your data and try again.",
       chartUpdates: [],
       success: false,
-      error: 'Invalid JSON in request body'
-    }, { status: 400 });
+      error: 'Invalid JSON in request body',
+      details: parseError instanceof Error ? parseError.message : 'Unknown parsing error'
+    }, { 
+      status: 400,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
   }
   
   try {
     const { message, stockData, stockSymbol, timeFrame, annotations, chartType } = body;
+
+    // First, try to call your backend on port 8000
+    console.log("🚀 Attempting to connect to backend at http://localhost:8000/api/ai/analyze");
+    
+    try {
+      const backendResponse = await fetch('http://localhost:8000/api/ai/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(body),
+        // Add timeout to prevent hanging
+        signal: AbortSignal.timeout(10000) // 10 second timeout
+      });
+
+      if (backendResponse.ok) {
+        const backendData = await backendResponse.json();
+        console.log("✅ Backend response received successfully");
+        
+        return NextResponse.json({
+          ...backendData,
+          success: true,
+          source: 'backend-gemini'
+        }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+          }
+        });
+      } else {
+        console.log(`⚠️ Backend returned ${backendResponse.status}: ${backendResponse.statusText}`);
+        throw new Error(`Backend returned status ${backendResponse.status}`);
+      }
+    } catch (fetchError) {
+      console.log("❌ Backend connection failed:", fetchError);
+      console.log("🔄 Falling back to local Gemini API or smart analysis...");
+      
+      // Fall through to existing Gemini/local analysis logic
+    }
 
     // Perform technical analysis
     const supportResistance = findSupportResistanceLevels(stockData);
@@ -289,7 +484,135 @@ ${stockData.slice(-5).map((d, i) => {
 Respond as a knowledgeable trading mentor would, with actionable insights and clear reasoning.
     `;
 
-    // Check for specific trendline analysis requests first
+    console.log("🧠 Processing smart analysis request...");
+    console.log("📊 Technical Context:", body.technicalContext);
+    console.log("💬 Enhanced Message:", body.message);
+    console.log("🔍 Original Message:", body.originalMessage);
+
+    // Smart contextual analysis - use enhanced message and technical context
+    const enhancedMessage = body.message || message;
+    const technicalContext = body.technicalContext;
+    const marketContext = technicalContext?.marketContext;
+
+    // Generate smart response based on enhanced context
+    if (marketContext && technicalContext) {
+      console.log("🚀 Using enhanced technical analysis...");
+      
+      const smartAnalysis = `🧠 **Smart Technical Analysis for ${stockSymbol}**
+
+**📈 Current Market State:**
+• **Trend:** ${marketContext.trend?.toUpperCase().replace('_', ' ')} ${getTrendEmoji(marketContext.trend)}
+• **Momentum:** ${marketContext.momentum?.toUpperCase()} ${getMomentumEmoji(marketContext.momentum)}
+• **Strength:** ${marketContext.strength?.toUpperCase()} ${getStrengthEmoji(marketContext.strength)}
+• **Volume:** ${marketContext.volume?.toUpperCase()} ${getVolumeEmoji(marketContext.volume)}
+
+**💹 Key Metrics:**
+• **Current Price:** $${technicalContext.currentPrice?.toFixed(2)}
+• **20-MA:** $${technicalContext.ma20?.toFixed(2)} ${technicalContext.currentPrice > technicalContext.ma20 ? '(Above - Bullish 🟢)' : '(Below - Bearish 🔴)'}
+• **RSI:** ${technicalContext.rsi?.toFixed(1)} ${getRSIStatus(technicalContext.rsi)}
+• **Volatility:** ${technicalContext.volatility?.toFixed(1)}%
+
+**🎯 Smart Insights:**
+${generateSmartInsights(marketContext, technicalContext, enhancedMessage)}
+
+**💡 Action Recommendations:**
+${generateActionRecommendations(marketContext, technicalContext)}
+
+*This is enhanced AI analysis using advanced technical indicators and market context.*`;
+
+      return NextResponse.json({
+        message: smartAnalysis,
+        chartUpdates: generateSmartChartUpdates(technicalContext),
+        success: true,
+        analysisType: 'smart-enhanced'
+      });
+    }
+
+    // Check for support/resistance validation questions
+    if ((message.toLowerCase().includes('support') || message.toLowerCase().includes('resistance') || 
+         message.toLowerCase().includes('valid') || message.toLowerCase().includes('level')) && 
+        annotations.length > 0) {
+      
+      console.log("🎯 Support/Resistance validation detected! Processing annotations...");
+      const latestAnnotation = annotations[annotations.length - 1];
+      
+      if (latestAnnotation && latestAnnotation.points?.length >= 2) {
+        const [start, end] = latestAnnotation.points;
+        console.log("📊 Validating trendline points:", { start, end });
+        
+        if (start.y && end.y && !isNaN(start.y) && !isNaN(end.y)) {
+          const avgPrice = (start.y + end.y) / 2;
+          const currentPrice = stockData[stockData.length - 1]?.close || 0;
+          const messageLower = message.toLowerCase();
+          
+          // Determine if checking support or resistance
+          const isCheckingSupport = messageLower.includes('support') || avgPrice < currentPrice;
+          const isCheckingResistance = messageLower.includes('resistance') || avgPrice > currentPrice;
+          
+          // Simple validation logic for API
+          const tolerance = 0.02; // 2%
+          const recentLows = stockData.slice(-20).map(d => d.low);
+          const recentHighs = stockData.slice(-20).map(d => d.high);
+          
+          let validationResponse = "";
+          
+          if (isCheckingSupport) {
+            const nearestLow = Math.min(...recentLows);
+            const distanceFromLow = Math.abs(avgPrice - nearestLow) / avgPrice;
+            const isValidSupport = distanceFromLow <= tolerance;
+            
+            validationResponse = `🔍 **Support Level Validation for ${stockSymbol}**
+
+**Your Trendline:** $${avgPrice.toFixed(2)}
+**Validation Result:** ${isValidSupport ? '✅ VALID SUPPORT LEVEL' : '❌ NOT A VALID SUPPORT LEVEL'}
+
+**Analysis:**
+• **Nearest Recent Low:** $${nearestLow.toFixed(2)}
+• **Distance:** ${(distanceFromLow * 100).toFixed(1)}% ${distanceFromLow <= 0.01 ? '(Very Close ✅)' : distanceFromLow <= 0.02 ? '(Close ⚡)' : '(Too Far ❌)'}
+• **Current Price:** $${currentPrice.toFixed(2)}
+
+**Conclusion:**
+${isValidSupport ? 
+  'This trendline aligns well with recent support levels! Price has shown support around this area, making it a valid level to watch for bounces.' :
+  `This trendline doesn't align with strong historical support. Consider drawing closer to $${nearestLow.toFixed(2)} for a more accurate support analysis.`
+}
+
+*For detailed historical analysis, upgrade to full AI analysis with Gemini API.*`;
+          } else if (isCheckingResistance) {
+            const nearestHigh = Math.max(...recentHighs);
+            const distanceFromHigh = Math.abs(avgPrice - nearestHigh) / avgPrice;
+            const isValidResistance = distanceFromHigh <= tolerance;
+            
+            validationResponse = `🔍 **Resistance Level Validation for ${stockSymbol}**
+
+**Your Trendline:** $${avgPrice.toFixed(2)}
+**Validation Result:** ${isValidResistance ? '✅ VALID RESISTANCE LEVEL' : '❌ NOT A VALID RESISTANCE LEVEL'}
+
+**Analysis:**
+• **Nearest Recent High:** $${nearestHigh.toFixed(2)}
+• **Distance:** ${(distanceFromHigh * 100).toFixed(1)}% ${distanceFromHigh <= 0.01 ? '(Very Close ✅)' : distanceFromHigh <= 0.02 ? '(Close ⚡)' : '(Too Far ❌)'}
+• **Current Price:** $${currentPrice.toFixed(2)}
+
+**Conclusion:**
+${isValidResistance ? 
+  'This trendline aligns well with recent resistance levels! Price has faced rejection around this area, making it a valid level to watch for reversals.' :
+  `This trendline doesn't align with strong historical resistance. Consider drawing closer to $${nearestHigh.toFixed(2)} for a more accurate resistance analysis.`
+}
+
+*For detailed historical analysis, upgrade to full AI analysis with Gemini API.*`;
+          }
+
+          return NextResponse.json({
+            message: validationResponse,
+            chartUpdates: [],
+            success: true,
+            analysisType: 'support-resistance-validation'
+          });
+        }
+      }
+    }
+
+    // Check for specific trendline analysis requests
     if (message.toLowerCase().includes('trendline') || message.toLowerCase().includes('analyze the') || 
         (message.toLowerCase().includes('drew') && annotations.length > 0)) {
       
@@ -352,8 +675,17 @@ ${Math.abs(priceChangePercent) > 3 ?
       }
     }
 
-    // Call Gemini API for general analysis
-    const geminiResponse = await callGeminiAPI(analysisContext);
+    // Try Gemini API directly as fallback (if API key is configured)
+    let geminiResponse = null;
+    
+    try {
+      console.log("🤖 Attempting direct Gemini API call as secondary fallback...");
+      geminiResponse = await callGeminiAPI(analysisContext);
+      console.log("✅ Direct Gemini API call successful");
+    } catch (geminiError) {
+      console.log("❌ Direct Gemini API also failed:", geminiError);
+      console.log("🔄 Using smart local analysis instead...");
+    }
     
     // Generate chart updates based on analysis and user query
     const chartUpdates: ChartAnnotation[] = [];
@@ -409,22 +741,34 @@ ${Math.abs(priceChangePercent) > 3 ?
       });
     }
 
-    // Return response
-    return NextResponse.json({
-      message: geminiResponse,
-      chartUpdates,
-      analysisData: {
-        trend,
-        supportResistance,
-        volumeAnalysis,
-        technicalIndicators: {
-          ma20: ma20[ma20.length - 1],
-          rsi: null, // Could be implemented
-          macd: null // Could be implemented
+    // Return response - use Gemini if available, otherwise use smart fallback
+    if (geminiResponse) {
+      return NextResponse.json({
+        message: geminiResponse,
+        chartUpdates,
+        analysisData: {
+          trend,
+          supportResistance,
+          volumeAnalysis,
+          technicalIndicators: {
+            ma20: ma20[ma20.length - 1],
+            rsi: calculateRSI(stockData),
+            volatility: calculateVolatility(stockData)
+          }
+        },
+        success: true,
+        source: 'direct-gemini'
+      }, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
         }
-      },
-      success: true
-    });
+      });
+    } else {
+      // Use smart local analysis if neither backend nor Gemini work
+      console.log("🧠 Using enhanced local analysis as final fallback...");
+      throw new Error("Forcing fallback to local analysis");
+    }
 
   } catch (error) {
     console.error('AI Analysis Error:', error);
@@ -459,8 +803,77 @@ ${Math.abs(priceChangePercent) > 3 ?
     const userMessageLower = message.toLowerCase();
     let smartResponse = '';
     
-    // Handle trendline analysis in fallback
-    if ((userMessageLower.includes('trendline') || userMessageLower.includes('analyze the') || 
+    // Handle support/resistance validation in fallback
+    if ((userMessageLower.includes('support') || userMessageLower.includes('resistance') || 
+         userMessageLower.includes('valid') || userMessageLower.includes('level')) && 
+         body.annotations && body.annotations.length > 0) {
+      
+      const latestAnnotation = body.annotations[body.annotations.length - 1];
+      if (latestAnnotation && latestAnnotation.points && latestAnnotation.points.length >= 2) {
+        const [start, end] = latestAnnotation.points;
+        
+        if (start.y && end.y && !isNaN(start.y) && !isNaN(end.y)) {
+          const avgPrice = (start.y + end.y) / 2;
+          const currentPrice = stockData[stockData.length - 1]?.close || 0;
+          const isCheckingSupport = userMessageLower.includes('support') || avgPrice < currentPrice;
+          
+          // Simple validation
+          const recentData = stockData.slice(-15);
+          const recentLows = recentData.map(d => d.low);
+          const recentHighs = recentData.map(d => d.high);
+          
+          if (isCheckingSupport) {
+            const minLow = Math.min(...recentLows);
+            const distance = Math.abs(avgPrice - minLow) / avgPrice * 100;
+            const isValid = distance <= 3; // 3% tolerance for fallback
+            
+            smartResponse = `🔍 **Support Level Validation (Local Analysis)**
+
+**Your Trendline:** $${avgPrice.toFixed(2)}
+**Result:** ${isValid ? '✅ APPEARS TO BE VALID SUPPORT' : '❌ NOT A STRONG SUPPORT LEVEL'}
+
+**Quick Analysis:**
+• **Recent Low:** $${minLow.toFixed(2)}
+• **Distance:** ${distance.toFixed(1)}%
+• **Current Price:** $${currentPrice.toFixed(2)}
+
+${isValid ? 
+  '✅ **Valid Support:** Your trendline aligns well with recent price lows. This level has shown support characteristics and could be a good area to watch for bounces.' :
+  `⚠️ **Weak Support:** Your trendline is ${distance.toFixed(1)}% away from the nearest support at $${minLow.toFixed(2)}. Consider adjusting your line closer to actual support levels for better accuracy.`
+}
+
+**💡 Tip:** Draw trendlines connecting actual price lows for the most accurate support analysis!
+
+*Upgrade to Gemini AI for comprehensive historical support/resistance analysis!*`;
+          } else {
+            const maxHigh = Math.max(...recentHighs);
+            const distance = Math.abs(avgPrice - maxHigh) / avgPrice * 100;
+            const isValid = distance <= 3; // 3% tolerance for fallback
+            
+            smartResponse = `🔍 **Resistance Level Validation (Local Analysis)**
+
+**Your Trendline:** $${avgPrice.toFixed(2)}
+**Result:** ${isValid ? '✅ APPEARS TO BE VALID RESISTANCE' : '❌ NOT A STRONG RESISTANCE LEVEL'}
+
+**Quick Analysis:**
+• **Recent High:** $${maxHigh.toFixed(2)}
+• **Distance:** ${distance.toFixed(1)}%
+• **Current Price:** $${currentPrice.toFixed(2)}
+
+${isValid ? 
+  '✅ **Valid Resistance:** Your trendline aligns well with recent price highs. This level has shown resistance characteristics and could be a good area to watch for reversals.' :
+  `⚠️ **Weak Resistance:** Your trendline is ${distance.toFixed(1)}% away from the nearest resistance at $${maxHigh.toFixed(2)}. Consider adjusting your line closer to actual resistance levels for better accuracy.`
+}
+
+**💡 Tip:** Draw trendlines connecting actual price highs for the most accurate resistance analysis!
+
+*Upgrade to Gemini AI for comprehensive historical support/resistance analysis!*`;
+          }
+        } else {
+          smartResponse = `⚠️ **Validation Error:** Unable to validate trendline due to coordinate issues. Please redraw the line on the price chart area.`;
+        }
+      }
+    } else if ((userMessageLower.includes('trendline') || userMessageLower.includes('analyze the') || 
          userMessageLower.includes('drew')) && body.annotations && body.annotations.length > 0) {
       
       const latestAnnotation = body.annotations[body.annotations.length - 1];

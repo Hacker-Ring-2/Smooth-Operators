@@ -533,9 +533,84 @@ const TechnicalAnalysisPage = () => {
     }
   };
 
+  // API Test Function
+  const testAPIConnection = async () => {
+    try {
+      console.log("🧪 Testing API connection...");
+      
+      // Test GET endpoint first
+      const getResponse = await fetch('/api/ai/analyze');
+      console.log("GET Response status:", getResponse.status);
+      const getResult = await getResponse.json();
+      console.log("GET Result:", getResult);
+      
+      // Test POST endpoint with minimal data
+      const testData = {
+        message: "test",
+        stockData: stockData || [],
+        stockSymbol: stockSymbol || "TEST",
+        timeFrame: "1d",
+        annotations: [],
+        chartType: "candlestick",
+        technicalContext: {
+          currentPrice: 100,
+          volatility: 20,
+          rsi: [],
+          priceChange: 0
+        }
+      };
+      
+      console.log("🚀 Sending test POST request...");
+      const postResponse = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(testData),
+      });
+      
+      console.log("POST Response status:", postResponse.status);
+      console.log("POST Response ok:", postResponse.ok);
+      
+      if (postResponse.ok) {
+        const postResult = await postResponse.json();
+        console.log("✅ POST Result:", postResult);
+        return "✅ API Connection Test Successful!";
+      } else {
+        const errorText = await postResponse.text();
+        console.error("❌ POST Error:", errorText);
+        return `❌ API Test Failed: ${postResponse.status} ${postResponse.statusText}`;
+      }
+    } catch (error) {
+      console.error("🚨 API Test Error:", error);
+      return `🚨 API Test Error: ${error}`;
+    }
+  };
+
   // AI Chat Functions
   const sendChatMessage = async (message: string) => {
     if (!message.trim()) return;
+    
+    // Handle API test
+    if (message === "Test API Connection") {
+      const testResult = await testAPIConnection();
+      
+      const testMessage: ChatMessage = {
+        id: `test-${Date.now()}`,
+        text: testResult,
+        sender: 'ai',
+        timestamp: new Date()
+      };
+      
+      setChatMessages(prev => [...prev, {
+        id: `user-${Date.now()}`,
+        text: message,
+        sender: 'user',
+        timestamp: new Date()
+      }, testMessage]);
+      setCurrentMessage('');
+      return;
+    }
 
     // Add user message
     const userMessage: ChatMessage = {
@@ -550,21 +625,50 @@ const TechnicalAnalysisPage = () => {
     setIsAITyping(true);
 
     try {
-      // Prepare enhanced request body with more context
+      // Prepare enhanced request body with comprehensive smart context
+      const currentPrice = stockData?.[stockData.length - 1]?.close || 0;
+      const volatility = stockData ? calculateVolatility(stockData) : 0;
+      const rsi = stockData ? calculateRSI(stockData.map(d => d.close)) : [];
+      const ma20 = stockData ? calculateMA(stockData.map(d => d.close), 20) : [];
+      
+      // Enhanced technical analysis for smarter responses
+      const technicalAnalysis = {
+        trend: stockData && stockData.length > 5 ? analyzeTrend(stockData) : 'unknown',
+        volatility: volatility,
+        rsi: rsi[rsi.length - 1] || 50,
+        maSignal: currentPrice > (ma20[ma20.length - 1] || 0) ? 'bullish' : 'bearish',
+        priceAction: stockData && stockData.length > 1 ? 
+          ((stockData[stockData.length - 1].close - stockData[stockData.length - 2].close) / stockData[stockData.length - 2].close * 100) : 0,
+        volumeTrend: stockData && stockData.length > 5 ? analyzeVolumeTrend(stockData) : 'normal',
+        supportResistance: stockData ? findKeyLevels(stockData) : { support: 0, resistance: 0 }
+      };
+
+      // Smart message processing - enhance user queries
+      const enhancedMessage = enhanceUserQuery(message, technicalAnalysis, annotations);
+      
       const requestBody = {
-        message,
+        message: enhancedMessage,
+        originalMessage: message,
         stockData: stockData || [],
         stockSymbol,
         timeFrame: selectedTimeFrame,
         annotations,
         chartType,
-        // Add more context for better AI analysis
+        // Enhanced technical context for smarter analysis
         technicalContext: {
-          currentPrice: stockData?.[stockData.length - 1]?.close || 0,
-          volatility: stockData ? calculateVolatility(stockData) : 0,
-          rsi: stockData ? calculateRSI(stockData.map(d => d.close)) : [],
+          currentPrice,
+          volatility,
+          rsi: rsi[rsi.length - 1] || 50,
+          ma20: ma20[ma20.length - 1] || 0,
           priceChange: stockData && stockData.length > 0 ? 
-            ((stockData[stockData.length - 1].close - stockData[0].open) / stockData[0].open * 100) : 0
+            ((stockData[stockData.length - 1].close - stockData[0].open) / stockData[0].open * 100) : 0,
+          technicalAnalysis,
+          marketContext: {
+            trend: technicalAnalysis.trend,
+            strength: Math.abs(technicalAnalysis.priceAction) > 2 ? 'strong' : 'weak',
+            momentum: technicalAnalysis.rsi > 70 ? 'overbought' : technicalAnalysis.rsi < 30 ? 'oversold' : 'neutral',
+            volume: technicalAnalysis.volumeTrend
+          }
         }
       };
       
@@ -586,6 +690,25 @@ const TechnicalAnalysisPage = () => {
       });
 
       console.log("Response status:", response.status);
+      console.log("Response headers:", response.headers);
+      console.log("Response ok:", response.ok);
+      
+      // Check if response is actually JSON
+      const contentType = response.headers.get('content-type');
+      console.log("Content-Type:", contentType);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Error response text:", errorText);
+        throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+      }
+      
+      if (!contentType?.includes('application/json')) {
+        const responseText = await response.text();
+        console.error("Non-JSON response received:", responseText.substring(0, 500));
+        throw new Error(`Expected JSON response but got ${contentType}. Response: ${responseText.substring(0, 200)}...`);
+      }
+      
       const result = await response.json();
       console.log("Backend response:", result);
       
@@ -610,12 +733,59 @@ const TechnicalAnalysisPage = () => {
       }
 
     } catch (error) {
-      console.error('AI Chat Error:', error);
+      console.error('🚨 AI Chat Error:', error);
       
-      // Use sophisticated fallback analysis
+      // Determine error type and provide appropriate fallback
+      let fallbackText = "";
+      
+      if (error instanceof Error) {
+        if (error.message.includes('JSON') || error.message.includes('<!DOCTYPE')) {
+          fallbackText = `🔧 **API Connection Issue Detected**
+
+The backend API is returning HTML instead of JSON. This usually means:
+
+**🚨 Possible Causes:**
+• Next.js development server needs restart
+• API route has compilation errors  
+• Wrong API endpoint URL
+• CORS or network issues
+
+**🛠 Quick Fixes:**
+1. **Restart Dev Server**: Stop and restart \`npm run dev\`
+2. **Check Console**: Look for API compilation errors
+3. **Test API**: Use the "Test API Connection" button
+4. **Fallback Analysis**: I'll provide local analysis below
+
+---
+
+${generateFallbackAIResponse(message)}`;
+        } else if (error.message.includes('fetch')) {
+          fallbackText = `🌐 **Network Connection Issue**
+
+Unable to reach the AI analysis API. Using local fallback analysis:
+
+${generateFallbackAIResponse(message)}`;
+        } else {
+          fallbackText = `🤖 **AI Trading Assistant for ${stockSymbol}**
+
+**Quick Analysis:**
+• Price: ${stockData?.length > 0 ? `$${stockData[stockData.length - 1]?.close?.toFixed(2)}` : 'Loading...'}
+• Active Annotations: ${annotations.length}
+
+**Market Insight:**
+The AI is processing market data to provide you with comprehensive analysis.
+
+**Pro Tip:** Draw on the chart and ask me to analyze your annotations for deeper insights!
+
+*AI analysis ready - Enhanced features available*`;
+        }
+      } else {
+        fallbackText = generateFallbackAIResponse(message);
+      }
+      
       const fallbackMessage: ChatMessage = {
         id: `ai-fallback-${Date.now()}`,
-        text: generateFallbackAIResponse(message),
+        text: fallbackText,
         sender: 'ai',
         timestamp: new Date()
       };
@@ -692,6 +862,242 @@ const TechnicalAnalysisPage = () => {
     setAnnotations([]);
   };
 
+  // Enhanced Smart Analysis Functions
+  const calculateMA = (prices: number[], period: number): number[] => {
+    const ma: number[] = [];
+    for (let i = 0; i < prices.length; i++) {
+      if (i < period - 1) {
+        ma.push(0);
+      } else {
+        const sum = prices.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
+        ma.push(sum / period);
+      }
+    }
+    return ma;
+  };
+
+  const analyzeTrend = (data: StockData[]): string => {
+    if (!data || data.length < 5) return 'unknown';
+    
+    const prices = data.slice(-10).map(d => d.close);
+    const firstPrice = prices[0];
+    const lastPrice = prices[prices.length - 1];
+    const change = ((lastPrice - firstPrice) / firstPrice) * 100;
+    
+    if (change > 2) return 'strong_bullish';
+    if (change > 0.5) return 'bullish';
+    if (change < -2) return 'strong_bearish';
+    if (change < -0.5) return 'bearish';
+    return 'sideways';
+  };
+
+  const analyzeVolumeTrend = (data: StockData[]): string => {
+    if (!data || data.length < 5) return 'normal';
+    
+    const recentVolume = data.slice(-5).reduce((sum, d) => sum + d.volume, 0) / 5;
+    const averageVolume = data.reduce((sum, d) => sum + d.volume, 0) / data.length;
+    
+    const ratio = recentVolume / averageVolume;
+    
+    if (ratio > 1.5) return 'high';
+    if (ratio < 0.7) return 'low';
+    return 'normal';
+  };
+
+  const findKeyLevels = (data: StockData[]) => {
+    if (!data || data.length < 10) return { support: 0, resistance: 0 };
+    
+    const recent = data.slice(-20);
+    const lows = recent.map(d => d.low);
+    const highs = recent.map(d => d.high);
+    
+    const support = lows.sort((a, b) => a - b)[Math.floor(lows.length * 0.2)];
+    const resistance = highs.sort((a, b) => b - a)[Math.floor(highs.length * 0.2)];
+    
+    return { support, resistance };
+  };
+
+  const enhanceUserQuery = (message: string, analysis: any, annotations: ChartAnnotation[]): string => {
+    const messageLower = message.toLowerCase();
+    
+    // Add context to simple queries
+    if (messageLower.includes('trend') && !messageLower.includes('analysis')) {
+      return `${message} - Current trend is ${analysis.trend} with ${analysis.strength} momentum. RSI: ${analysis.rsi.toFixed(1)}`;
+    }
+    
+    if (messageLower.includes('support') && annotations.length > 0) {
+      const lastAnnotation = annotations[annotations.length - 1];
+      if (lastAnnotation.points && lastAnnotation.points.length >= 2) {
+        const avgPrice = (lastAnnotation.points[0].y + lastAnnotation.points[1].y) / 2;
+        return `${message} - Analyzing trendline at $${avgPrice.toFixed(2)} with current price at $${analysis.currentPrice.toFixed(2)}`;
+      }
+    }
+    
+    if (messageLower.includes('resistance') && annotations.length > 0) {
+      const lastAnnotation = annotations[annotations.length - 1];
+      if (lastAnnotation.points && lastAnnotation.points.length >= 2) {
+        const avgPrice = (lastAnnotation.points[0].y + lastAnnotation.points[1].y) / 2;
+        return `${message} - Analyzing resistance at $${avgPrice.toFixed(2)} with current price at $${analysis.currentPrice.toFixed(2)}`;
+      }
+    }
+    
+    // Add technical context to generic queries
+    if (messageLower === "what's the trend?" || messageLower === "analyze rsi" || messageLower === "check volume") {
+      return `${message} - Context: ${analysis.trend} trend, RSI ${analysis.rsi.toFixed(1)}, volume ${analysis.volumeTrend}`;
+    }
+    
+    return message;
+  };
+
+  // Support/Resistance Analysis Functions
+  const findSupportResistanceLevels = (data: StockData[]) => {
+    if (!data || data.length < 5) return { supports: [], resistances: [] };
+    
+    const supports: number[] = [];
+    const resistances: number[] = [];
+    const lookback = 5; // periods to look back/forward for pivots
+    
+    for (let i = lookback; i < data.length - lookback; i++) {
+      const current = data[i];
+      const isLow = data.slice(i - lookback, i + lookback + 1)
+        .every(d => d.low >= current.low);
+      const isHigh = data.slice(i - lookback, i + lookback + 1)
+        .every(d => d.high <= current.high);
+      
+      if (isLow) supports.push(current.low);
+      if (isHigh) resistances.push(current.high);
+    }
+    
+    return { supports, resistances };
+  };
+
+  const validateSupportLevel = (trendlinePrice: number, stockData: StockData[]) => {
+    const { supports } = findSupportResistanceLevels(stockData);
+    const tolerance = 0.02; // 2% tolerance
+    
+    // Find closest support level
+    const closestSupport = supports.reduce((closest, level) => {
+      const currentDistance = Math.abs(level - trendlinePrice);
+      const closestDistance = Math.abs(closest - trendlinePrice);
+      return currentDistance < closestDistance ? level : closest;
+    }, supports[0] || 0);
+    
+    const distancePercent = Math.abs(closestSupport - trendlinePrice) / trendlinePrice * 100;
+    const isValid = distancePercent <= (tolerance * 100);
+    
+    // Count bounces from this level
+    const bounces = stockData.filter(d => 
+      Math.abs(d.low - trendlinePrice) / trendlinePrice <= tolerance
+    ).length;
+    
+    // Check recent price behavior around this level
+    const recentData = stockData.slice(-20);
+    const touchesLevel = recentData.filter(d => 
+      Math.abs(d.low - trendlinePrice) / trendlinePrice <= tolerance
+    ).length;
+    
+    return {
+      isValid,
+      closestSupport,
+      distancePercent,
+      bounces,
+      recentTouches: touchesLevel,
+      strength: bounces >= 2 ? 'Strong' : bounces >= 1 ? 'Moderate' : 'Weak'
+    };
+  };
+
+  const validateResistanceLevel = (trendlinePrice: number, stockData: StockData[]) => {
+    const { resistances } = findSupportResistanceLevels(stockData);
+    const tolerance = 0.02; // 2% tolerance
+    
+    // Find closest resistance level
+    const closestResistance = resistances.reduce((closest, level) => {
+      const currentDistance = Math.abs(level - trendlinePrice);
+      const closestDistance = Math.abs(closest - trendlinePrice);
+      return currentDistance < closestDistance ? level : closest;
+    }, resistances[0] || 0);
+    
+    const distancePercent = Math.abs(closestResistance - trendlinePrice) / trendlinePrice * 100;
+    const isValid = distancePercent <= (tolerance * 100);
+    
+    // Count rejections from this level
+    const rejections = stockData.filter(d => 
+      Math.abs(d.high - trendlinePrice) / trendlinePrice <= tolerance
+    ).length;
+    
+    // Check recent price behavior around this level
+    const recentData = stockData.slice(-20);
+    const touchesLevel = recentData.filter(d => 
+      Math.abs(d.high - trendlinePrice) / trendlinePrice <= tolerance
+    ).length;
+    
+    return {
+      isValid,
+      closestResistance,
+      distancePercent,
+      rejections,
+      recentTouches: touchesLevel,
+      strength: rejections >= 2 ? 'Strong' : rejections >= 1 ? 'Moderate' : 'Weak'
+    };
+  };
+
+  const analyzeTrendlineValidity = (trendlinePoints: {x: number, y: number}[], stockData: StockData[], message: string) => {
+    if (!trendlinePoints || trendlinePoints.length < 2) return null;
+    
+    const [start, end] = trendlinePoints;
+    const avgPrice = (start.y + end.y) / 2;
+    const currentPrice = stockData[stockData.length - 1]?.close || 0;
+    const messageLower = message.toLowerCase();
+    
+    // Determine if user is asking about support or resistance
+    const isCheckingSupport = messageLower.includes('support') || avgPrice < currentPrice;
+    const isCheckingResistance = messageLower.includes('resistance') || avgPrice > currentPrice;
+    
+    let analysis = '';
+    
+    if (isCheckingSupport) {
+      const supportAnalysis = validateSupportLevel(avgPrice, stockData);
+      analysis = `🔍 **Support Level Analysis:**
+
+**Trendline Level:** $${avgPrice.toFixed(2)}
+**Validity:** ${supportAnalysis.isValid ? '✅ VALID SUPPORT' : '❌ NOT A VALID SUPPORT'}
+
+**📊 Analysis Details:**
+• **Closest Historical Support:** $${supportAnalysis.closestSupport?.toFixed(2) || 'N/A'}
+• **Distance from Historical:** ${supportAnalysis.distancePercent.toFixed(1)}% ${supportAnalysis.distancePercent <= 2 ? '(Very Close ✅)' : supportAnalysis.distancePercent <= 5 ? '(Moderately Close ⚠️)' : '(Too Far ❌)'}
+• **Historical Bounces:** ${supportAnalysis.bounces} times
+• **Recent Touches:** ${supportAnalysis.recentTouches} in last 20 periods
+• **Support Strength:** ${supportAnalysis.strength} ${supportAnalysis.strength === 'Strong' ? '💪' : supportAnalysis.strength === 'Moderate' ? '⚡' : '📉'}
+
+**🎯 Conclusion:**
+${supportAnalysis.isValid ? 
+  `This trendline IS at a valid support level! The price has ${supportAnalysis.bounces > 0 ? `bounced off this level ${supportAnalysis.bounces} times` : 'shown support characteristics'} historically. This level is likely to ${supportAnalysis.strength === 'Strong' ? 'provide strong support' : 'offer some support'} in future price movements.` :
+  `This trendline is NOT at a valid support level. The nearest actual support is at $${supportAnalysis.closestSupport?.toFixed(2)} (${supportAnalysis.distancePercent.toFixed(1)}% away). Consider drawing your trendline closer to historical support zones for more accurate analysis.`
+}`;
+    } else if (isCheckingResistance) {
+      const resistanceAnalysis = validateResistanceLevel(avgPrice, stockData);
+      analysis = `🔍 **Resistance Level Analysis:**
+
+**Trendline Level:** $${avgPrice.toFixed(2)}
+**Validity:** ${resistanceAnalysis.isValid ? '✅ VALID RESISTANCE' : '❌ NOT A VALID RESISTANCE'}
+
+**📊 Analysis Details:**
+• **Closest Historical Resistance:** $${resistanceAnalysis.closestResistance?.toFixed(2) || 'N/A'}
+• **Distance from Historical:** ${resistanceAnalysis.distancePercent.toFixed(1)}% ${resistanceAnalysis.distancePercent <= 2 ? '(Very Close ✅)' : resistanceAnalysis.distancePercent <= 5 ? '(Moderately Close ⚠️)' : '(Too Far ❌)'}
+• **Historical Rejections:** ${resistanceAnalysis.rejections} times
+• **Recent Touches:** ${resistanceAnalysis.recentTouches} in last 20 periods
+• **Resistance Strength:** ${resistanceAnalysis.strength} ${resistanceAnalysis.strength === 'Strong' ? '💪' : resistanceAnalysis.strength === 'Moderate' ? '⚡' : '📈'}
+
+**🎯 Conclusion:**
+${resistanceAnalysis.isValid ? 
+  `This trendline IS at a valid resistance level! The price has ${resistanceAnalysis.rejections > 0 ? `been rejected from this level ${resistanceAnalysis.rejections} times` : 'shown resistance characteristics'} historically. This level is likely to ${resistanceAnalysis.strength === 'Strong' ? 'provide strong resistance' : 'offer some resistance'} to upward price movements.` :
+  `This trendline is NOT at a valid resistance level. The nearest actual resistance is at $${resistanceAnalysis.closestResistance?.toFixed(2)} (${resistanceAnalysis.distancePercent.toFixed(1)}% away). Consider drawing your trendline closer to historical resistance zones for more accurate analysis.`
+}`;
+    }
+    
+    return analysis;
+  };
+
   // Generate intelligent fallback AI response with technical analysis
   const generateFallbackAIResponse = (message: string): string => {
     const messageLower = message.toLowerCase();
@@ -700,8 +1106,21 @@ const TechnicalAnalysisPage = () => {
       return "Please load some stock data first, then I can help analyze it for you! 📊";
     }
 
+    // Handle support/resistance validation questions
+    if ((messageLower.includes('support') || messageLower.includes('resistance') || 
+         messageLower.includes('valid') || messageLower.includes('level')) && annotations.length > 0) {
+      
+      const latestAnnotation = annotations[annotations.length - 1];
+      if (latestAnnotation.points && latestAnnotation.points.length >= 2) {
+        const validationResult = analyzeTrendlineValidity(latestAnnotation.points, stockData, message);
+        if (validationResult) {
+          return validationResult;
+        }
+      }
+    }
+
     // Handle 2-point trendline analysis with enhanced logging
-    if (messageLower.includes('analyze the trendline') && annotations.length > 0) {
+    if ((messageLower.includes('analyze the trendline') || messageLower.includes('analyze my trendline')) && annotations.length > 0) {
       console.log("Processing trendline analysis for annotations:", annotations);
       
       const latestAnnotation = annotations[annotations.length - 1];
@@ -2021,7 +2440,12 @@ ${priceChangePercent > 2 ? '✅ Strong uptrend - Look for pullbacks to buy' :
                   "Analyze RSI",
                   "Check volume",
                   "Calculate volatility",
-                  ...(annotations.length > 0 ? ["Analyze my trendline"] : [])
+                  ...(annotations.length > 0 ? [
+                    "Analyze my trendline",
+                    "Is this a valid support level?",
+                    "Is this a valid resistance level?"
+                  ] : []),
+                  "Test API Connection"
                 ].map((suggestion) => (
                   <button
                     key={suggestion}
